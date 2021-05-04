@@ -11,7 +11,6 @@
 #include <concurrentqueue.h>
 #include <readerwriterqueue.h>
 
-#include <iostream>
 
 #include "spdlog/spdlog.h"
 
