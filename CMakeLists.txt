@@ -11,19 +11,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(FetchContent)
 
-FetchContent_Declare(
-  googletest
-  URL https://github.com/google/googletest/archive/609281088cfefc76f9d0ce82e1ff6c30cc3591e5.zip
-)
-
-FetchContent_MakeAvailable(googletest)
-
-FetchContent_Declare(
-    formatlib
-    GIT_REPOSITORY "https://github.com/fmtlib/fmt.git"
-    GIT_TAG "7.1.3")
-
-FetchContent_MakeAvailable(formatlib)
 
 FetchContent_Declare(
   spdlog
@@ -46,19 +33,10 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(readerwriterqueue)
 
-FetchContent_Declare(
-  cppresult
-  GIT_REPOSITORY "https://github.com/stephanfr/CppResult.git" )
-
-FetchContent_MakeAvailable(cppresult)
-
 
 include_directories(
-  ${formatlib_SOURCE_DIR}/include
-  ${formatlib_BIN_DIR}
   ${spdlog_SOURCE_DIR}/include
   ${spdlog_BIN_DIR}
-  ${cppresult_SOURCE_DIR}/include
   ${concurrentqueue_SOURCE_DIR}
   ${readerwriterqueue_SOURCE_DIR}
   )
