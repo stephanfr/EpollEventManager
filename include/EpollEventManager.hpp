@@ -7,7 +7,6 @@
 #include <sys/eventfd.h>
 
 #include <atomic>
-//#include <chrono>
 #include <functional>
 #include <map>
 
@@ -18,7 +17,7 @@ namespace SEFUtility
     namespace EEM
     {
         //
-        //  R is the result class for any dispatch results.  
+        //  R is the result class for any dispatch results.
         //  Ex is the Exception class which defaults to std::runtime_error
         //
 
@@ -69,6 +68,9 @@ namespace SEFUtility
                     start_service_routine();
                 }
             }
+
+            EpollEventManager(const EpollEventManager&) = delete;
+            EpollEventManager(EpollEventManager&&) = delete;
 
             virtual ~EpollEventManager()
             {
@@ -134,6 +136,10 @@ namespace SEFUtility
                               "EpollEventManager::send_directive template argument 'D' "
                               "must be covertible to EEMDirective");
 
+                static_assert(std::is_constructible<R>::value,
+                              "EpollEventManager::send_directive template argument 'R' "
+                              "must have a no args constructor");
+
                 moodycamel::BlockingReaderWriterQueue<R> response_queue;
 
                 isr_directives_.enqueue(std::make_pair(&directive, &response_queue));
@@ -149,68 +155,72 @@ namespace SEFUtility
 
             EEMResult add_fd(int fd, EEMWorkerDispatchPrep& worker_dispatch)
             {
-                worker_dispatchers_.emplace(fd, worker_dispatch);
-
                 struct epoll_event epoll_control_event;
                 epoll_control_event.events = EPOLLIN;
                 epoll_control_event.data.fd = fd;
 
-                //  Call epoll_ctl to add the pin's fd to the interest set.  If the add
-                //  fails because the
-                //      fd already exists in the set, then use EPOLL_CTL_MOD to change the
-                //      event.  This should never happen - if it does then something is
-                //      wrong in this library.
+                //  Call epoll_ctl to add the fd to the interest set.  If the add
+                //      fails because the fd already exists in the set, then simply
+                //      log a message and continue on to record the callback.
 
                 if (epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, fd, &epoll_control_event) < 0)
                 {
                     SPDLOG_ERROR(
-                        "Unable to add descriptor to epoll_ctl in "
+                        "Error adding descriptor to epoll_ctl in "
                         "EpollEventManager::add_fd().  errno = "
-                        "{}",
-                        errno);
+                        "{} : {}",
+                        errno, strerror(errno));
 
-                    worker_dispatchers_.erase(fd);
+                    if (errno != EEXIST)
+                    {
+                        std::string message(
+                            "Unable to add descriptor to epoll_ctl in EpollEventManager::add_fd().  errno = ");
+                        message += strerror(errno);
 
-                    std::string message(
-                        "Unable to add descriptor to epoll_ctl in EpollEventManager::add_fd().  errno = ");
-                    message += strerror(errno);
-
-                    return EEMResult::failed(message);
+                        return EEMResult::failure(message);
+                    }
                 }
 
-                return EEMResult::succeeded();
+                //  Record the desired callback and return success
+
+                worker_dispatchers_.insert_or_assign(fd, worker_dispatch);
+
+                return EEMResult::success();
             }
 
             EEMResult modify_fd(int fd, EEMWorkerDispatchPrep& worker_dispatch)
             {
-                worker_dispatchers_.emplace(fd, worker_dispatch);
-
                 struct epoll_event epoll_control_event;
                 epoll_control_event.events = EPOLLIN;
                 epoll_control_event.data.fd = fd;
 
-                //  Call epoll_ctl to add the pin's fd to the interest set.  If the add
-                //  fails because the
-                //      fd already exists in the set, then use EPOLL_CTL_MOD to change the
-                //      event.  This should never happen - if it does then something is
-                //      wrong in this library.
+                //  Call epoll_ctl to modify the fd to the interest set.  If the modify
+                //      fails because the fd already exists in the set, then return a failed status.
+                //
+                //  If the fd has already been added - then this should be a pretty useless call as
+                //      none of the parameters are changing but I think it makes sense to do anyway
+                //      simpy to be sure of the state of the fd.
 
                 if (epoll_ctl(epoll_fd_, EPOLL_CTL_MOD, fd, &epoll_control_event) < 0)
                 {
                     SPDLOG_ERROR(
                         "Unable to modify file descriptor in epoll_ctl in "
                         "EpollEventManager::modify_fd().  errno = "
-                        "{}",
-                        errno);
+                        "{} : {}",
+                        errno, strerror(errno));
 
                     std::string message(
                         "Unable to modify descriptor to epoll_ctl in EpollEventManager::modify_fd().  errno = ");
                     message += strerror(errno);
 
-                    return EEMResult::failed(message);
+                    return EEMResult::failure(message);
                 }
 
-                return EEMResult::succeeded();
+                //  Save the dispatch function
+
+                worker_dispatchers_.insert_or_assign(fd, worker_dispatch);
+
+                return EEMResult::success();
             }
 
             EEMResult remove_fd(int fd)
@@ -232,24 +242,23 @@ namespace SEFUtility
                     SPDLOG_ERROR(
                         "Unable to delete file descriptor from epoll_ctl in "
                         "EpollEventManager::remove_fd().  errno = "
-                        "{}",
-                        errno);
+                        "{} : {}",
+                        errno, strerror(errno));
 
                     std::string message(
                         "Unable to remove descriptor to epoll_ctl in EpollEventManager::remove_fd().  errno = ");
                     message += strerror(errno);
 
-                    return EEMResult::failed(message);
+                    return EEMResult::failure(message);
                 }
 
-                return EEMResult::succeeded();
+                return EEMResult::success();
             }
 
             void enqueue_callback(std::function<void()>& callback) { worker_queue_.enqueue(callback); }
             void enqueue_callback(std::function<void()>&& callback) { worker_queue_.enqueue(callback); }
 
            private:
-
             class WorkerDirective
             {
                public:
@@ -320,17 +329,13 @@ namespace SEFUtility
                 write(event_fd_, &u, sizeof(uint64_t));
             }
 
-            void epoll_service_routine()
+            void set_realtime_scheduling(int priority)
             {
-                SPDLOG_TRACE("In epoll_service_routine");
-
-                //  Use realtime scheduling if requested
-
                 if (realtime_scheduling_)
                 {
                     struct sched_param thread_scheduling;
 
-                    thread_scheduling.sched_priority = 5;
+                    thread_scheduling.sched_priority = priority;
 
                     int set_sched_result = pthread_setschedparam(pthread_self(), SCHED_FIFO, &thread_scheduling);
 
@@ -343,6 +348,13 @@ namespace SEFUtility
                             set_sched_result);
                     }
                 }
+            }
+
+            void epoll_service_routine()
+            {
+                SPDLOG_TRACE("In epoll_service_routine");
+
+                //  Use realtime scheduling if requested
 
                 struct epoll_event epoll_control_event;
                 struct epoll_event epoll_wait_events[max_number_of_fds_ + 2];
@@ -352,7 +364,11 @@ namespace SEFUtility
                 constexpr int read_buffer_size = 64;
                 char read_buffer[read_buffer_size];
 
-                //  Start the worker thread and use realtime scheduling if it was requested
+                //  Setup realtime scheduling if requested
+
+                set_realtime_scheduling(5);
+
+                //  Start the worker thread
 
                 worker_thread_ = std::thread(&EpollEventManager<R, Ex>::worker_main, this);
 
@@ -390,9 +406,21 @@ namespace SEFUtility
                         }
                         else if (epoll_wait_events[i].events == EPOLLIN)
                         {
-                            worker_dispatchers_.at(epoll_wait_events[i].data.fd)
-                                .get()
-                                .prepare_worker_callback(epoll_wait_events[i].data.fd, *this);
+                            auto element = worker_dispatchers_.find(epoll_wait_events[i].data.fd);
+
+                            if (element != worker_dispatchers_.end())
+                            {
+                                element->second.get().prepare_worker_callback(epoll_wait_events[i].data.fd, *this);
+                            }
+                            else
+                            {
+                                int bad_fd = epoll_wait_events[i].data.fd;
+
+                                SPDLOG_ERROR(
+                                    "In EpollEventManager::epoll_service_routine() - Could not find callback method "
+                                    "for fd : {}",
+                                    bad_fd);
+                            }
                         }
                     }
 
@@ -435,23 +463,7 @@ namespace SEFUtility
 
                 //  Set realtime scheduling if requested
 
-                if (realtime_scheduling_)
-                {
-                    struct sched_param thread_scheduling;
-
-                    thread_scheduling.sched_priority = 10;
-
-                    int set_sched_result = pthread_setschedparam(pthread_self(), SCHED_FIFO, &thread_scheduling);
-
-                    if (set_sched_result != 0)
-                    {
-                        SPDLOG_ERROR(
-                            "Unable to set ISR Worker Thread scheduling policy - file may need "
-                            "cap_sys_nice capability.  "
-                            "Error: {}",
-                            set_sched_result);
-                    }
-                }
+                set_realtime_scheduling(10);
 
                 //  Start the worker dispatch loop
 

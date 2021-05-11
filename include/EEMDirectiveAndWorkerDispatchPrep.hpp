@@ -18,13 +18,13 @@ namespace SEFUtility
             EEMResult(ResultCode result_code, const std::string& message)
                 : result_code_(result_code), message_(message){};
 
-            bool success() const { return result_code_ == ResultCode::SUCCESS; }
+            bool succeeded() const { return result_code_ == ResultCode::SUCCESS; }
 
             ResultCode result_code() const { return result_code_; }
             const std::string message() const { return message_; }
 
-            static EEMResult succeeded() { return EEMResult(ResultCode::SUCCESS, ""); }
-            static EEMResult failed(const std::string message) { return EEMResult(ResultCode::FAILURE, message); }
+            static EEMResult success() { return EEMResult(ResultCode::SUCCESS, ""); }
+            static EEMResult failure(const std::string message) { return EEMResult(ResultCode::FAILURE, message); }
 
            private:
             ResultCode result_code_;
