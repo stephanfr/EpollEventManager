@@ -1,12 +1,14 @@
 
-#include <spdlog/spdlog.h>
-
-#include <catch2/catch_all.hpp>
 #include <chrono>
 #include <fstream>
 #include <future>
 #include <iostream>
+#include <random>
 #include <vector>
+
+#include <spdlog/spdlog.h>
+
+#include <catch2/catch_all.hpp>
 
 #include "EEMDirectiveAndWorkerDispatchPrep.hpp"
 #include "EpollEventManager.hpp"
@@ -22,14 +24,18 @@
 
 using namespace std::chrono_literals;
 
-long current_memory_consumption_in_kb()
+
+
+int64_t current_memory_consumption_in_kb()
 {
+constexpr int MAX_CHAR_BUFFER_LENGTH = 129;
+
     std::ifstream file("/proc/self/status");
     std::string line;
 
-    line.reserve(129);
+    line.reserve(MAX_CHAR_BUFFER_LENGTH);
 
-    long mem_consumption = -1;
+    int64_t mem_consumption = -1;
 
     while (!file.eof())
     {
@@ -37,7 +43,7 @@ long current_memory_consumption_in_kb()
 
         if (line.find("VmSize:") != std::string::npos)
         {
-            std::string kb_value = line.substr(line.find("VmSize:") + 7);
+            std::string kb_value = line.substr(line.find("VmSize:") + sizeof("VmSize:"));
             mem_consumption = stol(kb_value);
             break;
         }
@@ -69,7 +75,9 @@ class EEMTestResult : public SEFUtility::Result<EMMTestResultCodes>
 {
    public:
     EEMTestResult() : Result(Result::failure(EMMTestResultCodes::UNINITIALIZED, "")) {}
-    EEMTestResult(const Result& result_to_copy) : Result(result_to_copy) {}
+    
+    //  NOLINTNEXTLINE
+    EEMTestResult(const SEFUtility::Result<EMMTestResultCodes>& result_to_copy) : SEFUtility::Result<EMMTestResultCodes>(result_to_copy) {}
 };
 
 using EpollEventManagerBase = SEFUtility::EEM::EpollEventManager<EEMTestResult>;
@@ -77,11 +85,11 @@ using EpollEventManagerBase = SEFUtility::EEM::EpollEventManager<EEMTestResult>;
 class EEMAddEventFDDirective : public SEFUtility::EEM::EEMDirective<EEMTestResult>
 {
    public:
-    EEMAddEventFDDirective(EventFileDescriptor& efd) : efd_(efd) {}
+    explicit EEMAddEventFDDirective(EventFileDescriptor& efd) : efd_(efd) {}
 
     EEMTestResult handle_directive(SEFUtility::EEM::EEMFileDescriptorManager& fd_manager) final
     {
-        SEFUtility::EEM::EEMResult result = fd_manager.add_fd(efd_, efd_);
+        SEFUtility::EEM::EEMResult result = fd_manager.add_fd(static_cast<int>(efd_), efd_);
 
         if (!result.succeeded())
         {
@@ -98,11 +106,11 @@ class EEMAddEventFDDirective : public SEFUtility::EEM::EEMDirective<EEMTestResul
 class EEMRemoveEventFDDirective : public SEFUtility::EEM::EEMDirective<EEMTestResult>
 {
    public:
-    EEMRemoveEventFDDirective(EventFileDescriptor& efd) : efd_(efd) {}
+    explicit EEMRemoveEventFDDirective(EventFileDescriptor& efd) : efd_(efd) {}
 
     EEMTestResult handle_directive(SEFUtility::EEM::EEMFileDescriptorManager& fd_manager) final
     {
-        SEFUtility::EEM::EEMResult result = fd_manager.remove_fd(efd_);
+        SEFUtility::EEM::EEMResult result = fd_manager.remove_fd(static_cast<int>(efd_));
 
         if (!result.succeeded())
         {
@@ -116,12 +124,19 @@ class EEMRemoveEventFDDirective : public SEFUtility::EEM::EEMDirective<EEMTestRe
     EventFileDescriptor& efd_;
 };
 
+constexpr int       MAX_NUMBER_OF_FDS = 24;
+
 class TestEventMgr : public EpollEventManagerBase
 {
    public:
-    TestEventMgr() : EpollEventManagerBase(24, false, false) {}
+    TestEventMgr() : EpollEventManagerBase(MAX_NUMBER_OF_FDS, false, false) {}
+    TestEventMgr( const TestEventMgr& ) = delete;
+    TestEventMgr( TestEventMgr&& ) = delete;
 
-    ~TestEventMgr() = default;
+    const TestEventMgr& operator=(const TestEventMgr&) = delete;
+    const TestEventMgr& operator=(TestEventMgr&&) = delete;
+
+    ~TestEventMgr() override = default;
 };
 
 bool add_remove_send_event_main(TestEventMgr& test_event_mgr)
@@ -129,9 +144,16 @@ bool add_remove_send_event_main(TestEventMgr& test_event_mgr)
     EventFileDescriptor efd;
     bool active = false;
 
-    for (int i = 0; i < 10000000; i++)
+    std::random_device random_dev;
+    std::mt19937 mersenne_twist(random_dev());
+    std::uniform_int_distribution<int> operation_random_distribution(1, 10);        //  NOLINT
+    std::uniform_int_distribution<int> event_value_random_distribution(1, 1000000); //  NOLINT
+    
+    constexpr int   NUMBER_OF_ITERATIONS = 10000000;
+
+    for (int i = 0; i < NUMBER_OF_ITERATIONS; i++)
     {
-        int operation = rand() % 10;
+        int operation = operation_random_distribution(mersenne_twist);
 
         if (operation == 0)
         {
@@ -157,12 +179,10 @@ bool add_remove_send_event_main(TestEventMgr& test_event_mgr)
         }
         else
         {
-            int value = rand();
-
-            efd.send_event(value);
+            efd.send_event(event_value_random_distribution(mersenne_twist));
         }
 
-        clock_nanosleep(CLOCK_MONOTONIC, 0, &two_hundred_microseconds, NULL);
+        clock_nanosleep(CLOCK_MONOTONIC, 0, &two_hundred_microseconds, nullptr);
     }
 
     return true;
@@ -184,15 +204,19 @@ TEST_CASE("Basic EpollEventManager Tests", "[basic]")
 
         REQUIRE(result.succeeded());
 
-        int value;
+        std::random_device random_dev;
+        std::mt19937 mersenne_twist(random_dev());
+        std::uniform_int_distribution<int> event_value_random_distribution(1, 1000000); //  NOLINT
 
-        for (int i = 0; i < 10; i++)
+        int value;  //  NOLINT(cppcoreguidelines-init-variables)
+
+        for (int i = 0; i < 10; i++)    //  NOLINT
         {
-            value = rand();
+            value = event_value_random_distribution(mersenne_twist);
 
             efd.send_event(value);
 
-            clock_nanosleep(CLOCK_MONOTONIC, 0, &one_second, NULL);
+            clock_nanosleep(CLOCK_MONOTONIC, 0, &one_second, nullptr);
 
             REQUIRE(efd.num_callbacks() == i + 1);
             REQUIRE(efd.last_value() == value);
@@ -206,13 +230,13 @@ TEST_CASE("Basic EpollEventManager Tests", "[basic]")
 
         REQUIRE(result.succeeded());
 
-        for (int i = 0; i < 5; i++)
+        for (int i = 0; i < 5; i++)     //  NOLINT
         {
-            value = rand();
+            value = event_value_random_distribution(mersenne_twist);
 
             efd.send_event(value);
 
-            clock_nanosleep(CLOCK_MONOTONIC, 0, &one_second, NULL);
+            clock_nanosleep(CLOCK_MONOTONIC, 0, &one_second, nullptr);
 
             REQUIRE(efd.num_callbacks() == 10);
             REQUIRE(efd.last_value() == final_value);
@@ -230,19 +254,23 @@ TEST_CASE("Basic EpollEventManager Tests", "[basic]")
         std::cout << "Starting Process Memory Usage " << current_memory_consumption_in_kb() << std::endl;
 
         {
-            std::vector<std::future<bool>> worker_threads;
-            std::vector<long>               memory_size_readings;
+            std::vector<std::future<bool>>  worker_threads;
+            std::vector<int64_t>               memory_size_readings;
 
-            memory_size_readings.reserve(4096);
+            memory_size_readings.reserve(4096);     //  NOLINT
 
-            for (int i = 0; i < 20; i++)
+            constexpr int   NUMBER_OF_WORKER_THREADS = 20;
+
+            worker_threads.reserve( NUMBER_OF_WORKER_THREADS );
+
+            for (int i = 0; i < NUMBER_OF_WORKER_THREADS; i++)
             {
                 worker_threads.emplace_back(std::async(add_remove_send_event_main, std::ref(test_event_mgr)));
             }
 
             std::cout << "Process Memory Usage before loop " << current_memory_consumption_in_kb() << std::endl;
 
-            for (int i = 0; i < 20; i++)
+            for (int i = 0; i < NUMBER_OF_WORKER_THREADS; i++)
             {
                 while (worker_threads[i].wait_for(30s) == std::future_status::timeout)
                 {
