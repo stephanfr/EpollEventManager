@@ -74,23 +74,16 @@ class EEMTestResult
    public:
     EEMTestResult() : result_(SEFUtility::Result<EMMTestResultCodes>::failure(EMMTestResultCodes::UNINITIALIZED, "")) {}
 
-    explicit EEMTestResult(const EEMTestResult& result_to_copy) : result_(result_to_copy.result_) {}
+    EEMTestResult(const EEMTestResult& result_to_copy) = default;
 
-    EEMTestResult(EEMTestResult&& result_to_copy) : result_(std::move(result_to_copy.result_)) {}
+    EEMTestResult(EEMTestResult&& result_to_copy) noexcept : result_(std::move(result_to_copy.result_)) {}      //  NOLINT
 
-    EEMTestResult& operator=(const EEMTestResult& result_to_copy)
-    {
-        result_ = result_to_copy.result_;
+    ~EEMTestResult() = default;
 
-        return *this;
-    }
+    EEMTestResult& operator=(const EEMTestResult& result_to_copy) = default;
 
-    EEMTestResult& operator=(EEMTestResult&& result_to_move)
-    {
-        result_ = std::move(result_to_move.result_);
+    EEMTestResult& operator=(EEMTestResult&& result_to_move) noexcept = delete;
 
-        return *this;
-    }
 
     bool succeeded() { return result_.succeeded(); }
     bool failed() { return result_.failed(); }
@@ -102,10 +95,10 @@ class EEMTestResult
         return EEMTestResult(SEFUtility::Result<EMMTestResultCodes>::failure(error_code, message));
     }
 
-   protected:
+   private:
     SEFUtility::Result<EMMTestResultCodes> result_;
 
-    EEMTestResult(SEFUtility::Result<EMMTestResultCodes> result) : result_(result) {}
+    explicit EEMTestResult(const SEFUtility::Result<EMMTestResultCodes>& result) : result_(result) {}
 };
 
 using EpollEventManagerBase = SEFUtility::EEM::EpollEventManager<EEMTestResult>;
@@ -167,17 +160,16 @@ class TestEventMgr : public EpollEventManagerBase
     ~TestEventMgr() override = default;
 };
 
-bool add_remove_send_event_main(TestEventMgr& test_event_mgr, long num_iterations)
+bool add_remove_send_event_main(TestEventMgr& test_event_mgr, int32_t num_iterations)
 {
     EventFileDescriptor efd;
-    bool active = false;
 
     std::random_device random_dev;
     std::mt19937 mersenne_twist(random_dev());
     std::uniform_int_distribution<int> operation_random_distribution(1, 10);         //  NOLINT
     std::uniform_int_distribution<int> event_value_random_distribution(1, 1000000);  //  NOLINT
 
-    for (long i = 0; i < num_iterations; i++)
+    for (int32_t i = 0; i < num_iterations; i++)
     {
         int operation = operation_random_distribution(mersenne_twist);
 
@@ -186,22 +178,12 @@ bool add_remove_send_event_main(TestEventMgr& test_event_mgr, long num_iteration
             EEMAddEventFDDirective add_efd_directive(efd);
 
             EEMTestResult result = test_event_mgr.send_directive(add_efd_directive);
-
-            if (result.succeeded())
-            {
-                active = true;
-            }
         }
         else if (operation == 1)
         {
             EEMRemoveEventFDDirective remove_efd_directive(efd);
 
             EEMTestResult result = test_event_mgr.send_directive(remove_efd_directive);
-
-            if (result.succeeded())
-            {
-                active = false;
-            }
         }
         else
         {
@@ -283,9 +265,10 @@ TEST_CASE("Basic EpollEventManager Tests", "[basic]")
             SEFUtility::HeapWatcher::get_heap_watcher().start_watching();
 
             constexpr int NUMBER_OF_ITERATIONS = 100000;
+            constexpr int NUMBER_OF_WORKERS = 20;
 
-            test_fixture.add_workload(
-                20, std::bind(add_remove_send_event_main, std::ref(test_event_mgr), NUMBER_OF_ITERATIONS));
+            test_fixture.add_workload(NUMBER_OF_WORKERS, std::bind(add_remove_send_event_main, std::ref(test_event_mgr),   //   NOLINT
+                                                                   NUMBER_OF_ITERATIONS));
 
             test_fixture.start_workload();
             test_fixture.wait_for_completion();
@@ -295,6 +278,6 @@ TEST_CASE("Basic EpollEventManager Tests", "[basic]")
 
         auto snapshot = SEFUtility::HeapWatcher::get_heap_watcher().stop_watching();
 
-        REQUIRE(snapshot.open_allocations().size() == 0);
+        REQUIRE(snapshot.open_allocations().size() == 0);  //  NOLINT
     }
 }

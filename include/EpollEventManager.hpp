@@ -138,8 +138,8 @@ namespace SEFUtility::EEM
                           "EpollEventManager::send_directive template argument 'D' "
                           "must be covertible to EEMDirective");
 
-            std::promise<R>         result_promise;
-            std::future<R>          result_future = result_promise.get_future();
+            std::promise<R> result_promise;
+            std::future<R> result_future = result_promise.get_future();
 
             isr_directives_.enqueue(std::make_pair(&directive, &result_promise));
 
@@ -259,8 +259,14 @@ namespace SEFUtility::EEM
             return EEMResult::success();
         }
 
-        void enqueue_callback(const std::function<void()>& callback) final { worker_queue_.enqueue( std::move( WorkerDirective( callback ))); }
-        void enqueue_callback(std::function<void()>&& callback) final { worker_queue_.enqueue(std::move( WorkerDirective( std::move( callback )))); }
+        void enqueue_callback(const std::function<void()>& callback) final
+        {
+            worker_queue_.enqueue(std::move(WorkerDirective(callback)));
+        }
+        void enqueue_callback(std::function<void()>&& callback) final
+        {
+            worker_queue_.enqueue(std::move(WorkerDirective(std::move(callback))));
+        }
 
        private:
         class WorkerDirective
@@ -334,8 +340,7 @@ namespace SEFUtility::EEM
 
         std::map<int, std::reference_wrapper<EEMWorkerDispatchPrep>> worker_dispatchers_;
 
-        moodycamel::ConcurrentQueue<std::pair<EEMDirective<R>*, std::promise<R>*>>
-            isr_directives_;
+        moodycamel::ConcurrentQueue<std::pair<EEMDirective<R>*, std::promise<R>*>> isr_directives_;
         moodycamel::BlockingConcurrentQueue<WorkerDirective> worker_queue_;
 
         void trigger_event_fd()
