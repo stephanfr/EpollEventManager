@@ -1,4 +1,7 @@
 
+#include <spdlog/spdlog.h>
+
+#include <catch2/catch_all.hpp>
 #include <chrono>
 #include <fstream>
 #include <future>
@@ -6,13 +9,10 @@
 #include <random>
 #include <vector>
 
-#include <spdlog/spdlog.h>
-
-#include <catch2/catch_all.hpp>
-
 #include "EEMDirectiveAndWorkerDispatchPrep.hpp"
 #include "EpollEventManager.hpp"
 #include "EventFileDescriptor.hpp"
+#include "MultithreadedTestFixture.hpp"
 #include "Result.hpp"
 
 //  The pragma below is to disable to false errors flagged by intellisense for
@@ -24,11 +24,9 @@
 
 using namespace std::chrono_literals;
 
-
-
 int64_t current_memory_consumption_in_kb()
 {
-constexpr int MAX_CHAR_BUFFER_LENGTH = 129;
+    constexpr int MAX_CHAR_BUFFER_LENGTH = 129;
 
     std::ifstream file("/proc/self/status");
     std::string line;
@@ -71,13 +69,43 @@ enum class EMMTestResultCodes
     FAILURE
 };
 
-class EEMTestResult : public SEFUtility::Result<EMMTestResultCodes>
+class EEMTestResult
 {
    public:
-    EEMTestResult() : Result(Result::failure(EMMTestResultCodes::UNINITIALIZED, "")) {}
-    
-    //  NOLINTNEXTLINE
-    EEMTestResult(const SEFUtility::Result<EMMTestResultCodes>& result_to_copy) : SEFUtility::Result<EMMTestResultCodes>(result_to_copy) {}
+    EEMTestResult() : result_(SEFUtility::Result<EMMTestResultCodes>::failure(EMMTestResultCodes::UNINITIALIZED, "")) {}
+
+    explicit EEMTestResult(const EEMTestResult& result_to_copy) : result_(result_to_copy.result_) {}
+
+    EEMTestResult(EEMTestResult&& result_to_copy) : result_(std::move(result_to_copy.result_)) {}
+
+    EEMTestResult& operator=(const EEMTestResult& result_to_copy)
+    {
+        result_ = result_to_copy.result_;
+
+        return *this;
+    }
+
+    EEMTestResult& operator=(EEMTestResult&& result_to_move)
+    {
+        result_ = std::move(result_to_move.result_);
+
+        return *this;
+    }
+
+    bool succeeded() { return result_.succeeded(); }
+    bool failed() { return result_.failed(); }
+
+    static EEMTestResult success() { return EEMTestResult(SEFUtility::Result<EMMTestResultCodes>::success()); }
+
+    static EEMTestResult failure(EMMTestResultCodes error_code, const std::string& message)
+    {
+        return EEMTestResult(SEFUtility::Result<EMMTestResultCodes>::failure(error_code, message));
+    }
+
+   protected:
+    SEFUtility::Result<EMMTestResultCodes> result_;
+
+    EEMTestResult(SEFUtility::Result<EMMTestResultCodes> result) : result_(result) {}
 };
 
 using EpollEventManagerBase = SEFUtility::EEM::EpollEventManager<EEMTestResult>;
@@ -124,14 +152,14 @@ class EEMRemoveEventFDDirective : public SEFUtility::EEM::EEMDirective<EEMTestRe
     EventFileDescriptor& efd_;
 };
 
-constexpr int       MAX_NUMBER_OF_FDS = 24;
+constexpr int MAX_NUMBER_OF_FDS = 24;
 
 class TestEventMgr : public EpollEventManagerBase
 {
    public:
     TestEventMgr() : EpollEventManagerBase(MAX_NUMBER_OF_FDS, false, false) {}
-    TestEventMgr( const TestEventMgr& ) = delete;
-    TestEventMgr( TestEventMgr&& ) = delete;
+    TestEventMgr(const TestEventMgr&) = delete;
+    TestEventMgr(TestEventMgr&&) = delete;
 
     const TestEventMgr& operator=(const TestEventMgr&) = delete;
     const TestEventMgr& operator=(TestEventMgr&&) = delete;
@@ -139,19 +167,17 @@ class TestEventMgr : public EpollEventManagerBase
     ~TestEventMgr() override = default;
 };
 
-bool add_remove_send_event_main(TestEventMgr& test_event_mgr)
+bool add_remove_send_event_main(TestEventMgr& test_event_mgr, long num_iterations)
 {
     EventFileDescriptor efd;
     bool active = false;
 
     std::random_device random_dev;
     std::mt19937 mersenne_twist(random_dev());
-    std::uniform_int_distribution<int> operation_random_distribution(1, 10);        //  NOLINT
-    std::uniform_int_distribution<int> event_value_random_distribution(1, 1000000); //  NOLINT
-    
-    constexpr int   NUMBER_OF_ITERATIONS = 10000000;
+    std::uniform_int_distribution<int> operation_random_distribution(1, 10);         //  NOLINT
+    std::uniform_int_distribution<int> event_value_random_distribution(1, 1000000);  //  NOLINT
 
-    for (int i = 0; i < NUMBER_OF_ITERATIONS; i++)
+    for (long i = 0; i < num_iterations; i++)
     {
         int operation = operation_random_distribution(mersenne_twist);
 
@@ -206,11 +232,11 @@ TEST_CASE("Basic EpollEventManager Tests", "[basic]")
 
         std::random_device random_dev;
         std::mt19937 mersenne_twist(random_dev());
-        std::uniform_int_distribution<int> event_value_random_distribution(1, 1000000); //  NOLINT
+        std::uniform_int_distribution<int> event_value_random_distribution(1, 1000000);  //  NOLINT
 
         int value;  //  NOLINT(cppcoreguidelines-init-variables)
 
-        for (int i = 0; i < 10; i++)    //  NOLINT
+        for (int i = 0; i < 10; i++)  //  NOLINT
         {
             value = event_value_random_distribution(mersenne_twist);
 
@@ -230,7 +256,7 @@ TEST_CASE("Basic EpollEventManager Tests", "[basic]")
 
         REQUIRE(result.succeeded());
 
-        for (int i = 0; i < 5; i++)     //  NOLINT
+        for (int i = 0; i < 5; i++)  //  NOLINT
         {
             value = event_value_random_distribution(mersenne_twist);
 
@@ -245,43 +271,30 @@ TEST_CASE("Basic EpollEventManager Tests", "[basic]")
 
     SECTION("Thread Reentrancy", "[threading]")
     {
-        TestEventMgr test_event_mgr;
-
-        test_event_mgr.start_service_routine();
-
         spdlog::set_level(spdlog::level::critical);
 
-        std::cout << "Starting Process Memory Usage " << current_memory_consumption_in_kb() << std::endl;
-
         {
-            std::vector<std::future<bool>>  worker_threads;
-            std::vector<int64_t>               memory_size_readings;
+            TestEventMgr test_event_mgr;
 
-            memory_size_readings.reserve(4096);     //  NOLINT
+            test_event_mgr.start_service_routine();
 
-            constexpr int   NUMBER_OF_WORKER_THREADS = 20;
+            SEFUtility::HeapWatcher::MultithreadedTestFixture test_fixture;
 
-            worker_threads.reserve( NUMBER_OF_WORKER_THREADS );
+            SEFUtility::HeapWatcher::get_heap_watcher().start_watching();
 
-            for (int i = 0; i < NUMBER_OF_WORKER_THREADS; i++)
-            {
-                worker_threads.emplace_back(std::async(add_remove_send_event_main, std::ref(test_event_mgr)));
-            }
+            constexpr int NUMBER_OF_ITERATIONS = 100000;
 
-            std::cout << "Process Memory Usage before loop " << current_memory_consumption_in_kb() << std::endl;
+            test_fixture.add_workload(
+                20, std::bind(add_remove_send_event_main, std::ref(test_event_mgr), NUMBER_OF_ITERATIONS));
 
-            for (int i = 0; i < NUMBER_OF_WORKER_THREADS; i++)
-            {
-                while (worker_threads[i].wait_for(30s) == std::future_status::timeout)
-                {
-                    memory_size_readings.push_back( current_memory_consumption_in_kb() );
-                    std::cout << "Process Memory Usage in loop " << memory_size_readings.back() << std::endl;
-                }
-
-                worker_threads[i].get();
-            }
+            test_fixture.start_workload();
+            test_fixture.wait_for_completion();
         }
 
-        std::cout << "Final Process Memory Usage " << current_memory_consumption_in_kb() << std::endl;
+        std::this_thread::sleep_for(10s);
+
+        auto snapshot = SEFUtility::HeapWatcher::get_heap_watcher().stop_watching();
+
+        REQUIRE(snapshot.open_allocations().size() == 0);
     }
 }

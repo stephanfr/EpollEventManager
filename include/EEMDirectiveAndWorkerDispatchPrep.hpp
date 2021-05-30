@@ -13,8 +13,6 @@ namespace SEFUtility::EEM
             FAILURE
         };
 
-        EEMResult(ResultCode result_code, std::string message) : result_code_(result_code), message_(std::move( message )){};
-
         [[nodiscard]] bool succeeded() const { return result_code_ == ResultCode::SUCCESS; }
 
         [[nodiscard]] ResultCode result_code() const { return result_code_; } 
@@ -26,6 +24,8 @@ namespace SEFUtility::EEM
        private:
         const ResultCode result_code_;
         const std::string message_;
+
+        EEMResult(ResultCode result_code, std::string message) : result_code_(result_code), message_(std::move( message )){};
     };
 
     class EEMCallbackQueue

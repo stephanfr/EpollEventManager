@@ -2,7 +2,6 @@
 
 #include <blockingconcurrentqueue.h>
 #include <concurrentqueue.h>
-#include <readerwriterqueue.h>
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 
@@ -133,27 +132,20 @@ namespace SEFUtility::EEM
         }
 
         template <typename D>
-        R send_directive(D& directive)
+        const R send_directive(D& directive)
         {
             static_assert(std::is_convertible<D*, EEMDirective<R>*>::value,
                           "EpollEventManager::send_directive template argument 'D' "
                           "must be covertible to EEMDirective");
 
-            static_assert(std::is_constructible<R>::value,
-                          "EpollEventManager::send_directive template argument 'R' "
-                          "must have a no args constructor");
+            std::promise<R>         result_promise;
+            std::future<R>          result_future = result_promise.get_future();
 
-            moodycamel::BlockingReaderWriterQueue<R> response_queue;
-
-            isr_directives_.enqueue(std::make_pair(&directive, &response_queue));
+            isr_directives_.enqueue(std::make_pair(&directive, &result_promise));
 
             trigger_event_fd();
 
-            R response;
-
-            response_queue.wait_dequeue(response);
-
-            return response;
+            return result_future.get();
         }
 
         EEMResult add_fd(int fd, EEMWorkerDispatchPrep& worker_dispatch) final
@@ -342,7 +334,7 @@ namespace SEFUtility::EEM
 
         std::map<int, std::reference_wrapper<EEMWorkerDispatchPrep>> worker_dispatchers_;
 
-        moodycamel::ConcurrentQueue<std::pair<EEMDirective<R>*, moodycamel::BlockingReaderWriterQueue<R>*>>
+        moodycamel::ConcurrentQueue<std::pair<EEMDirective<R>*, std::promise<R>*>>
             isr_directives_;
         moodycamel::BlockingConcurrentQueue<WorkerDirective> worker_queue_;
 
@@ -452,12 +444,12 @@ namespace SEFUtility::EEM
                     //  Look for directives.  Since this is a blocking call, the caller assumes ownership of the
                     //  directive.  Therefore no need to delete below.
 
-                    std::pair<EEMDirective<R>*, moodycamel::BlockingReaderWriterQueue<R>*> new_directive;
+                    std::pair<EEMDirective<R>*, std::promise<R>*> new_directive;
 
                     while (isr_directives_.try_dequeue(new_directive))
                     {
                         R result = new_directive.first->handle_directive(*this);
-                        new_directive.second->enqueue(result);
+                        new_directive.second->set_value(result);
                     }
                 }
             }

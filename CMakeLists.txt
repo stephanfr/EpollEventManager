@@ -26,19 +26,10 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(concurrentqueue)
 
-FetchContent_Declare(
-  readerwriterqueue
-  GIT_REPOSITORY "https://github.com/cameron314/readerwriterqueue.git"
-  GIT_TAG        v1.0.3 )
-
-FetchContent_MakeAvailable(readerwriterqueue)
-
-
 include_directories(
   ${spdlog_SOURCE_DIR}/include
   ${spdlog_BIN_DIR}
   ${concurrentqueue_SOURCE_DIR}
-  ${readerwriterqueue_SOURCE_DIR}
   )
 
 enable_testing()
