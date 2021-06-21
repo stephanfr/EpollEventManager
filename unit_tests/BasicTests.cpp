@@ -4,7 +4,6 @@
 #include <catch2/catch_all.hpp>
 #include <chrono>
 #include <fstream>
-#include <future>
 #include <iostream>
 #include <random>
 #include <vector>
