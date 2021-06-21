@@ -15,7 +15,11 @@ class EventFileDescriptor : public SEFUtility::EEM::EEMWorkerDispatchPrep
     [[nodiscard]] uint64_t last_value() const { return last_value_; }
     [[nodiscard]] uint32_t num_callbacks() const { return num_callbacks_; }
 
-    void send_event(uint64_t value) const { write(fd_, &value, sizeof(uint64_t)); }
+    void send_event(uint64_t value) const
+    {
+        [[maybe_unused]] auto bytes_written = write(fd_, &value, sizeof(uint64_t));
+        assert(bytes_written == sizeof(uint64_t));
+    }
 
     explicit operator int() const { return fd_; }
 
@@ -25,7 +29,7 @@ class EventFileDescriptor : public SEFUtility::EEM::EEMWorkerDispatchPrep
         last_value_ = value;
     }
 
-    void prepare_worker_callback(int fd, SEFUtility::EEM::EEMCallbackQueue& queue) final
+    void prepare_worker_callback( [[maybe_unused]] int fd, SEFUtility::EEM::EEMCallbackQueue& queue) final
     {
         assert(fd == fd_);  //  NOLINT
 

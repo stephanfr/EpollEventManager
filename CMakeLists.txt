@@ -9,6 +9,17 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 #add_compile_definitions(SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE)
 
+# Determine if fmt is built as a subproject (using add_subdirectory)
+# or if it is the master project.
+if (NOT DEFINED EPOLLEVENTMANAGER_IS_MASTER_PROJECT)
+  set(EPOLLEVENTMANAGER_IS_MASTER_PROJECT OFF)
+  if (CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
+    set(EPOLLEVENTMANAGER_IS_MASTER_PROJECT ON)
+    message(STATUS "CMake version: ${CMAKE_VERSION}")
+    message(STATUS "HeapWatcher is master project")
+  endif ()
+endif ()
+
 include(FetchContent)
 
 
@@ -40,5 +51,6 @@ set(CPACK_PROJECT_NAME ${PROJECT_NAME})
 set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})
 include(CPack)
 
-add_subdirectory("unit_tests")
-
+if( EPOLLEVENTMANAGER_IS_MASTER_PROJECT )
+  add_subdirectory("unit_tests")
+endif()

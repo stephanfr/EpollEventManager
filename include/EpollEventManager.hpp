@@ -346,7 +346,8 @@ namespace SEFUtility::EEM
         void trigger_event_fd()
         {
             uint64_t u = 1;
-            write(event_fd_, &u, sizeof(uint64_t));
+            auto bytes_written = write(event_fd_, &u, sizeof(uint64_t));
+            assert(bytes_written == sizeof(uint64_t));
         }
 
         void set_realtime_scheduling(int priority)
@@ -444,7 +445,7 @@ namespace SEFUtility::EEM
                     //  We are simply using the event_fd_ to signal that work is available
                     //  in the queue so read from the fd to clear it - but we don't care what is read.
 
-                    read(event_fd_, &read_buffer[0], read_buffer_size);
+                    auto num_chars_read = read(event_fd_, &read_buffer[0], read_buffer_size);
 
                     //  Look for directives.  Since this is a blocking call, the caller assumes ownership of the
                     //  directive.  Therefore no need to delete below.
