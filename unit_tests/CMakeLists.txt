@@ -17,6 +17,13 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(formatlib)
 
 FetchContent_Declare(
+  timespecutils
+  GIT_REPOSITORY "https://github.com/stephanfr/TimespecUtilities.git"
+  GIT_TAG "main" )
+
+FetchContent_MakeAvailable(timespecutils)
+
+FetchContent_Declare(
   cppresult
   GIT_REPOSITORY "https://github.com/stephanfr/CppResult.git" )
 
@@ -32,6 +39,7 @@ include_directories(
     ${formatlib_SOURCE_DIR}/include
     ${formatlib_BIN_DIR}
     ${cppresult_SOURCE_DIR}/include
+    ${timespecutils_SOURCE_DIR}/include
     ${heapwatcher_SOURCE_DIR}/include
     ${heapwatcher_BIN_DIR}
   )
@@ -41,7 +49,7 @@ include_directories(
 
 
 find_package(Catch2 REQUIRED)
-add_executable(tests BasicTests.cpp)
+add_executable(tests BasicTests.cpp SoftwareTimerTests.cpp)
 target_include_directories( tests PRIVATE ../include )
 target_link_libraries(tests PRIVATE Catch2::Catch2WithMain gtest HeapWatcher )
 
