@@ -10,8 +10,8 @@
 
 namespace SEFUtility::EEM
 {
-    template <typename R, typename Ex = std::runtime_error>
-    class SoftwareTimer : public EEMWorkerDispatchPrep
+    template <typename R, typename Ex = std::runtime_error, class... Bases >
+    class SoftwareTimer : public EEMWorkerDispatchPrep, public Bases...
     {
        public:
         SoftwareTimer(EpollEventManager<R, Ex>& event_manager, const std::string name, struct timespec period,
