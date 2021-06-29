@@ -10,28 +10,27 @@
 
 namespace SEFUtility::EEM
 {
-    template <typename R, typename Ex = std::runtime_error, class... Bases >
+    template <typename R, typename Ex = std::runtime_error, class... Bases>
     class SoftwareTimer : public EEMWorkerDispatchPrep, public Bases...
     {
        public:
         SoftwareTimer(EpollEventManager<R, Ex>& event_manager, const std::string name, struct timespec period,
                       bool repeating, uint32_t num_repetitions_requested, std::function<void()> isr_routine,
                       bool autostart)
-        : name_(name),
-          event_manager_(event_manager),
-          isr_routine_(isr_routine),
-          running_(false),
-          period_(period),
-          repeating_(repeating),
-          num_repetitions_requested_(num_repetitions_requested),
-          current_num_repetitions_(0),
-          fd_(timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC))
+            : name_(name),
+              event_manager_(event_manager),
+              isr_routine_(isr_routine),
+              running_(false),
+              period_(period),
+              repeating_(repeating),
+              num_repetitions_requested_(num_repetitions_requested),
+              current_num_repetitions_(0),
+              fd_(timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC))
         {
             if (fd_ < 0)
             {
-                    std::string message(
-                        "Unable to add descriptor to epoll_ctl in EpollEventManager::add_fd().  errno = ");
-                    message += strerror(errno);
+                std::string message("Unable to add descriptor to epoll_ctl in EpollEventManager::add_fd().  errno = ");
+                message += strerror(errno);
 
                 throw Ex(message);
             }
@@ -160,7 +159,7 @@ namespace SEFUtility::EEM
         class StartSoftwareTimerDirective : public EEMDirective<R>
         {
            public:
-            StartSoftwareTimerDirective(SoftwareTimer<R, Ex>& timer) : timer_(timer) {}
+            StartSoftwareTimerDirective(SoftwareTimer& timer) : timer_(timer) {}
 
             R handle_directive(EEMFileDescriptorManager& fd_manager)
             {
@@ -173,7 +172,7 @@ namespace SEFUtility::EEM
             }
 
            private:
-            SoftwareTimer<R, Ex>& timer_;
+            SoftwareTimer& timer_;
         };
 
         class StopSoftwareTimerDirective : public EEMDirective<R>
@@ -192,7 +191,7 @@ namespace SEFUtility::EEM
             }
 
            private:
-            SoftwareTimer<R, Ex>& timer_;
+            SoftwareTimer& timer_;
         };
     };
 
