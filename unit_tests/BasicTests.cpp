@@ -24,33 +24,6 @@
 
 using namespace std::chrono_literals;
 
-int64_t current_memory_consumption_in_kb()
-{
-    constexpr int MAX_CHAR_BUFFER_LENGTH = 129;
-
-    std::ifstream file("/proc/self/status");
-    std::string line;
-
-    line.reserve(MAX_CHAR_BUFFER_LENGTH);
-
-    int64_t mem_consumption = -1;
-
-    while (!file.eof())
-    {
-        std::getline(file, line);
-
-        if (line.find("VmSize:") != std::string::npos)
-        {
-            std::string kb_value = line.substr(line.find("VmSize:") + sizeof("VmSize:"));
-            mem_consumption = stol(kb_value);
-            break;
-        }
-    }
-
-    file.close();
-
-    return mem_consumption;
-}
 
 const struct timespec two_hundred_microseconds
 {
@@ -61,7 +34,6 @@ const struct timespec one_second
 {
     1, 0
 };
-
 
 
 
