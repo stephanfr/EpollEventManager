@@ -170,9 +170,9 @@ TEST_CASE("Basic EpollEventManager Tests", "[basic]")
 
         EEMRemoveEventFDDirective remove_efd_directive(efd);
 
-        result = test_event_mgr.send_directive(remove_efd_directive);
+        EEMTestResult result1( test_event_mgr.send_directive(remove_efd_directive) );
 
-        REQUIRE(result.succeeded());
+        REQUIRE(result1.succeeded());
 
         for (int i = 0; i < 5; i++)  //  NOLINT
         {

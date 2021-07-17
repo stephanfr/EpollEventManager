@@ -37,7 +37,7 @@ class EEMTestResult
         return EEMTestResult(SEFUtility::Result<EMMTestResultCodes>::failure(error_code, message));
     }
 
-    const std::string&      message() const { return result_.message(); }
+    [[nodiscard]] const std::string&      message() const { return result_.message(); }
 
    private:
     SEFUtility::Result<EMMTestResultCodes> result_;

@@ -133,7 +133,7 @@ namespace SEFUtility::EEM
         }
 
         template <typename D>
-        const R send_directive(D& directive)
+        R send_directive(D& directive)
         {
             static_assert(std::is_convertible<D*, EEMDirective<R>*>::value,
                           "EpollEventManager::send_directive template argument 'D' "

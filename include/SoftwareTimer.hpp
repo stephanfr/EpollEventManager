@@ -1,7 +1,7 @@
 #pragma once
 
+#include <ctime>
 #include <sys/timerfd.h>
-#include <time.h>
 
 #include <atomic>
 
@@ -13,27 +13,29 @@ namespace SEFUtility::EEM
     class SoftwareTimerCallback
     {
        public:
-        virtual void on_expiration(void) = 0;
+        virtual void on_expiration(struct timespec  timestamp ) = 0;
     };
 
     template <typename R, typename Ex = std::runtime_error, class... Bases>
     class SoftwareTimer : public EEMWorkerDispatchPrep, public Bases...
     {
        public:
-        SoftwareTimer(EpollEventManager<R, Ex>& event_manager, const std::string name, struct timespec period,
+
+       //   NOLINTNEXTLINE
+        SoftwareTimer(EpollEventManager<R, Ex>& event_manager, const std::string& name, struct timespec period,
                       bool repeating, uint32_t num_repetitions_requested, SoftwareTimerCallback& expiration_callback,
                       bool autostart)
             : SoftwareTimer(event_manager, name, period, repeating, num_repetitions_requested,
-                            std::bind(&SoftwareTimerCallback::on_expiration, &expiration_callback), autostart)
+                            std::bind(&SoftwareTimerCallback::on_expiration, &expiration_callback, std::placeholders::_1), autostart)
         {
         }
 
-        SoftwareTimer(EpollEventManager<R, Ex>& event_manager, const std::string name, struct timespec period,
-                      bool repeating, uint32_t num_repetitions_requested, std::function<void()> expiration_callback,
+        SoftwareTimer(EpollEventManager<R, Ex>& event_manager, const std::string& name, struct timespec period,
+                      bool repeating, uint32_t num_repetitions_requested, std::function<void(struct timespec)> expiration_callback,
                       bool autostart)
             : name_(name),
               event_manager_(event_manager),
-              expiration_callback_(expiration_callback),
+              expiration_callback_(std::move( expiration_callback)),
               running_(false),
               period_(period),
               repeating_(repeating),
@@ -103,10 +105,9 @@ namespace SEFUtility::EEM
             return R::success();
         }
 
-        void prepare_worker_callback([[maybe_unused]] int fd, SEFUtility::EEM::EEMCallbackQueue& queue)
-
+        void prepare_worker_callback([[maybe_unused]] int fd, SEFUtility::EEM::EEMCallbackQueue& queue) final
         {
-            uint64_t num_expirations;
+            uint64_t num_expirations = 0;
 
             int bytes_read = read(this->fd(), &num_expirations, sizeof(num_expirations));
 
@@ -118,7 +119,10 @@ namespace SEFUtility::EEM
 
             for (int i = 0; (i < num_expirations) && (current_num_repetitions_ < num_repetitions_requested_); i++)
             {
-                queue.enqueue_callback(expiration_callback_);
+                struct timespec     timestamp;
+                clock_gettime(CLOCK_REALTIME, &timestamp);
+
+                queue.enqueue_callback(std::bind( expiration_callback_, timestamp ));
                 current_num_repetitions_++;
             }
 
@@ -135,7 +139,7 @@ namespace SEFUtility::EEM
         const struct timespec period_;
         const bool repeating_;
         const uint32_t num_repetitions_requested_;
-        std::function<void()> expiration_callback_;
+        std::function<void(struct timespec)> expiration_callback_;
 
         int fd_;
         std::atomic_bool running_;
@@ -143,7 +147,7 @@ namespace SEFUtility::EEM
 
         R start_internal()
         {
-            struct itimerspec timer_spec;
+            struct itimerspec timer_spec = {0, 0};
             const struct timespec zero_timespec = {0, 0};
 
             timer_spec.it_interval = repeating_ ? period_ : zero_timespec;
@@ -151,7 +155,7 @@ namespace SEFUtility::EEM
 
             event_manager_.add_fd(fd_, *this);
 
-            timerfd_settime(fd_, 0, &timer_spec, NULL);
+            timerfd_settime(fd_, 0, &timer_spec, nullptr);
 
             running_ = true;
 
@@ -160,13 +164,13 @@ namespace SEFUtility::EEM
 
         R stop_internal()
         {
-            struct itimerspec timer_spec;
+            struct itimerspec timer_spec = {0, 0};
             const struct timespec zero_timespec = {0, 0};
 
             timer_spec.it_interval = zero_timespec;
             timer_spec.it_value = zero_timespec;
 
-            timerfd_settime(fd_, 0, &timer_spec, NULL);
+            timerfd_settime(fd_, 0, &timer_spec, nullptr);
 
             event_manager_.remove_fd(fd_);
 
@@ -181,9 +185,9 @@ namespace SEFUtility::EEM
         class StartSoftwareTimerDirective : public EEMDirective<R>
         {
            public:
-            StartSoftwareTimerDirective(SoftwareTimer& timer) : timer_(timer) {}
+            explicit StartSoftwareTimerDirective(SoftwareTimer& timer) : timer_(timer) {}
 
-            R handle_directive(EEMFileDescriptorManager& fd_manager)
+            R handle_directive([[maybe_unused]] EEMFileDescriptorManager& fd_manager)
             {
                 SPDLOG_TRACE("Entering StartSoftwareTimerDirective::handle_directive() for SoftwareTimer {}.",
                              timer_.name());
@@ -200,9 +204,9 @@ namespace SEFUtility::EEM
         class StopSoftwareTimerDirective : public EEMDirective<R>
         {
            public:
-            StopSoftwareTimerDirective(SoftwareTimer& timer) : timer_(timer) {}
+            explicit StopSoftwareTimerDirective(SoftwareTimer& timer) : timer_(timer) {}
 
-            R handle_directive(EEMFileDescriptorManager& fd_manager)
+            R handle_directive([[maybe_unused]]EEMFileDescriptorManager& fd_manager)
             {
                 SPDLOG_TRACE("Entering StopSoftwareTimerDirective::handle_directive() for SoftwareTimer {}.",
                              timer_.name());

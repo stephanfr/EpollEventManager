@@ -19,12 +19,12 @@ typedef SEFUtility::EEM::SoftwareTimer<EEMTestResult> SoftwareTimerImpl;
 
 long num_sw_timer_expirations = 0;
 
-void sw_timer_expiration_routine() { num_sw_timer_expirations++; }
+void sw_timer_expiration_routine(struct timespec timestamp) { num_sw_timer_expirations++; }
 
 class TestTimerCallback : public SEFUtility::EEM::SoftwareTimerCallback
 {
    public:
-    void on_expiration(void) final { num_callbacks_++; }
+    void on_expiration(struct timespec timestamp) final { num_callbacks_++; }
 
     long num_callbacks() const { return (num_callbacks_); }
 
